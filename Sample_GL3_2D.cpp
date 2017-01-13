@@ -56,12 +56,14 @@ scoreS score;
 typedef struct laserS{
     float x,y;
     VAO * laserObject;
-    static const float width=1.0, height=0.02;
+    static const float width=0.8, height=0.02;
     float rotationAngle;
     bool hit,forward;
     struct laserS* next;
 }laserS;
 laserS *laserFirst, *laserLast;
+
+float manualTimeBrickFall;
 
 //VAO *basket1, *basket2,*gun;
 void initialiseVariables(){
@@ -76,12 +78,14 @@ void initialiseVariables(){
     score.score=0;
     score.level=1;
     score.nonBlackHit=0;
+    manualTimeBrickFall=0.0;
     //laser.width=0.5, laser.height=0.2;
 }
 typedef struct brick{
     int color;
     VAO* brickObject;
     float x,y;
+    static const float width=0.25,height=0.5;
     bool hit;
     struct brick *next;
 }brick;
@@ -93,7 +97,7 @@ int colorList[4][3]={
 {0,0,0}
 };
 
-float timeBetweenBrickFall,manualTimeBrickFall;
+float timeBetweenBrickFall;
 
 GLuint programID;
 
@@ -335,7 +339,7 @@ void keyboard (GLFWwindow* window, int key, int scancode, int action, int mods)
 
             case GLFW_KEY_M:
                 manualTimeBrickFall-=0.1;
-                if(manualTimeBrickFall<-0.3)
+                if(manualTimeBrickFall<=-0.3)
                     manualTimeBrickFall+=0.1;
                 break;
 
@@ -666,6 +670,7 @@ void shoot()
     newLaser->x=gun.x+gun.width;
     newLaser->y=gun.y+(gun.height)/2;
     newLaser->forward=true;
+    newLaser->hit=false;
     newLaser->next=NULL;
 
     if(laserFirst==NULL)
@@ -715,13 +720,14 @@ void initGL (GLFWwindow* window, int width, int height)
 
 void levelup()
 {
-    timeBetweenBrickFall+=0.5;
+    timeBetweenBrickFall-=0.5;
     score.level++;
 }
 
 void changeScore(int change)
 {
     score.score+=5;
+    printf("%d\n",score.score );
     if (score.score>50)
         levelup();
 }
@@ -742,7 +748,6 @@ void checkCollisionBasketBrick(brick * fallenBrick)
         else
         {
             changeScore(5);
-            printf("%d\n",score.score);
         }
     }
 
@@ -764,6 +769,36 @@ void checkCollisionBasketBrick(brick * fallenBrick)
     }
 }
 
+void checkCollisionLaserBrick(laserS *laserseg)
+{
+    brick * node;
+    float laserTipX=(laserseg->x)+(laserseg->width),laserTipY=(laserseg->y);  //bottom right vertex
+    for(node=brickListFirst;node!=NULL;node=node->next)
+    {
+        //if laser hits brick
+        if(node->hit==false)
+        {
+            //printf("hoho\n");
+            if(((node->x)<=laserTipX) && ((node->x)>=(laserseg->x)) && ((node->y)<=laserTipY) && ((node->y)+(node->height)>=laserTipY+(laserseg->height)))
+            //if(((1.0)>=laserTipX) && ((node->x)+(node->width)<=laserTipX) && ((node->y)<=laserTipY) && ((node->y)+(node->height)>=laserTipY+(laserseg->height)))
+            {
+                node->hit=true;
+                laserseg->hit=true;
+                if(node->color!=3)
+                {
+                    score.nonBlackHit++;
+                    if(score.nonBlackHit>=3)
+                        gamelost();
+                }
+                else
+                {
+                    changeScore(10);
+                }
+            }
+        }
+    }
+}
+
 int main (int argc, char** argv)
 {
 	int width = 900;
@@ -774,7 +809,8 @@ int main (int argc, char** argv)
 
 	initGL(window, width, height);
 
-    double last_update_time = glfwGetTime(), current_time,last_update_time_laser=last_update_time;
+    double last_update_time = glfwGetTime(), current_time;
+    double last_update_time_laser=last_update_time;
 
     /* Draw in loop */
     while (!glfwWindowShouldClose(window)) {
@@ -791,14 +827,13 @@ int main (int argc, char** argv)
         // Control based on time (Time based transformation like 5 degrees rotation every 0.5s)
         current_time = glfwGetTime(); // Time in seconds
         timeBetweenBrickFall=1.0;
-        manualTimeBrickFall=0.0;
-        if ((current_time - last_update_time) >= timeBetweenBrickFall+manualTimeBrickFall) { // atleast 0.5s elapsed since last frame
+        if ((current_time - last_update_time) >= timeBetweenBrickFall-manualTimeBrickFall) { // atleast 0.5s elapsed since last frame
             //make new brick
             brick *newBrick=(brick *)malloc(sizeof(brick));
             newBrick->color=rand()%4;
             newBrick->x=(rand()%80)/10-2;
             newBrick->y=4.25;
-            newBrick->brickObject=createRectangle(0.0,0.0,0.0,-0.5,0.25,-0.5,0.25,0.0,colorList[newBrick->color][0],colorList[newBrick->color][1],colorList[newBrick->color][2]);
+            newBrick->brickObject=createRectangle(0.0f,0.0f,0.0f,newBrick->height,newBrick->width,newBrick->height,newBrick->width,0.0f,colorList[newBrick->color][0],colorList[newBrick->color][1],colorList[newBrick->color][2]);
             newBrick->hit=false;
             newBrick->next=NULL;
             if(brickListLast!=NULL)
@@ -820,28 +855,51 @@ int main (int argc, char** argv)
             }
             last_update_time = current_time;
         }
-        if(current_time-last_update_time_laser>=0.1)
+        if(current_time-last_update_time_laser>=0.01)
         {
             laserS* nodeL,*PnodeL=laserFirst;
-            for(nodeL=laserFirst;nodeL!=NULL;nodeL=nodeL->next,PnodeL=nodeL)
+            for(nodeL=laserFirst;nodeL!=NULL;)
             {
                 if(nodeL->forward)
                 {
                     nodeL->x+=0.1*cos(nodeL->rotationAngle*M_PI/180);
                     nodeL->y+=0.1*sin(nodeL->rotationAngle*M_PI/180);
-                    if((nodeL->x)+(nodeL->width)>4.0 || (nodeL->x)+(nodeL->width)<-4.0)
-                        if(nodeL!=laserFirst)
-                        {
-                            PnodeL->next=nodeL->next;
-                            nodeL=PnodeL;
-                        }
-                        else
-                        {
-                            
-                        }
-
                 }
+                else
+                {
+                    nodeL->x-=0.1*cos(nodeL->rotationAngle*M_PI/180);
+                    nodeL->y-=0.1*sin(nodeL->rotationAngle*M_PI/180);
+                }
+                if(nodeL->hit==false)
+                    checkCollisionLaserBrick(nodeL);
+                //if laser goes out of screen, delete it
+                if((nodeL->x)+(nodeL->width)>4.0 || (nodeL->x)+(nodeL->width)<-4.0)
+                {
+                    if(nodeL!=laserFirst)
+                    {
+                        PnodeL->next=nodeL->next;
+                        nodeL=nodeL->next;
+                    }
+                    else
+                    {
+                        laserFirst=laserFirst->next;
+                        PnodeL=laserFirst;
+                        nodeL=laserFirst;
+                    }
+                    if(nodeL==laserLast)
+                    {
+                        laserLast=PnodeL;
+                        nodeL=NULL;
+                    }
+                }
+                else
+                {
+                    PnodeL=nodeL;
+                    nodeL=nodeL->next;
+                }
+
             }
+            last_update_time_laser = current_time;
         }
     }
 
