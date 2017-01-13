@@ -31,12 +31,53 @@ struct GLMatrices {
 	glm::mat4 view;
 	GLuint MatrixID;
 } Matrices;
-VAO *basket1, *basket2,*gun;
-float basket1_x=-2.0f,basket1_y=-3.75f;
-float basket2_x=2.0f,basket2_y=-3.75f;
-float gun_x=-4.0f,gun_y=0.0f;
-float gun_rotation = 0;
+typedef struct basket{
+    VAO *basketObject;
+    float x,y; //bottom left vertex
+    float width,height;
+    int bricks;
+    int color[3];
+}basket;
+basket basket1, basket2;
 
+typedef struct gunS{
+    VAO *gunObject;
+    float x,y;
+    float width, height;
+    float rotationAngle;
+}gunS;
+gunS gun;
+
+typedef struct scoreS{
+    int score,level,nonBlackHit;
+}scoreS;
+scoreS score;
+
+typedef struct laserS{
+    float x,y;
+    VAO * laserObject;
+    static const float width=1.0, height=0.02;
+    float rotationAngle;
+    bool hit,forward;
+    struct laserS* next;
+}laserS;
+laserS *laserFirst, *laserLast;
+
+//VAO *basket1, *basket2,*gun;
+void initialiseVariables(){
+    basket1.x=-2.0f,basket1.y=-4.0f;
+    basket2.x=2.0f,basket2.y=-4.0f;
+    basket1.width=0.5,basket1.height=0.25;
+    basket2.width=0.5, basket2.height=0.25;
+    basket1.bricks=0,basket2.bricks=0;
+    gun.x=-4.0f,gun.y=0.0f;
+    gun.width=1.0, gun.height=0.2;
+    gun.rotationAngle = 0;
+    score.score=0;
+    score.level=1;
+    score.nonBlackHit=0;
+    //laser.width=0.5, laser.height=0.2;
+}
 typedef struct brick{
     int color;
     VAO* brickObject;
@@ -52,7 +93,7 @@ int colorList[4][3]={
 {0,0,0}
 };
 
-float timeBetweenBrickFall;
+float timeBetweenBrickFall,manualTimeBrickFall;
 
 GLuint programID;
 
@@ -231,6 +272,8 @@ float rectangle_rot_dir = 1;
 bool triangle_rot_status = true;
 bool rectangle_rot_status = true;
 
+void shoot();
+
 /* Executed when a regular key is pressed/released/held-down */
 /* Prefered for Keyboard events */
 void keyboard (GLFWwindow* window, int key, int scancode, int action, int mods)
@@ -240,48 +283,64 @@ void keyboard (GLFWwindow* window, int key, int scancode, int action, int mods)
     if (action == GLFW_REPEAT || action==GLFW_RELEASE) {
         switch (key) {
             case GLFW_KEY_C:
-                basket1_x-=brickMovement;
-                if (basket1_x<-3.0)
-                    basket1_x=-3.0;
+                (basket1.x)-=brickMovement;
+                if ((basket1.x)<-3.0)
+                    (basket1.x)=-3.0;
                 break;
             case GLFW_KEY_V:
-                basket1_x+=brickMovement;
-                if (basket1_x>basket2_x-0.25)
-                    basket1_x-=brickMovement;
+                (basket1.x)+=brickMovement;
+                if ((basket1.x)+(basket1.width)>=(basket2.x))
+                    (basket1.x)-=brickMovement;
                 break;
 
-            case GLFW_KEY_N:
-                basket2_x-=brickMovement;
-                if (basket2_x<basket1_x+0.25)
-                    basket2_x+=brickMovement;
+            case GLFW_KEY_U:
+                (basket2.x)-=brickMovement;
+                if ((basket2.x)<=(basket1.x)+(basket1.width))
+                    basket2.x+=brickMovement;
                 break;
-            case GLFW_KEY_M:
-                basket2_x+=brickMovement;
-                if (basket2_x>4.75)
-                    basket2_x-=brickMovement;
+            case GLFW_KEY_I:
+                basket2.x+=brickMovement;
+                if ((basket2.x)+(basket2.width)>4.75)
+                    (basket2.x)-=brickMovement;
                 break;
 
 
             case GLFW_KEY_S:
-                gun_y+=gunMovement;
-                if(gun_y>3.5)
-                    gun_y-=gunMovement;
+                gun.y+=gunMovement;
+                if(gun.y>3.5)
+                    gun.y-=gunMovement;
                 break;
             case GLFW_KEY_F:
-                gun_y-=gunMovement;
-                if(gun_y<-3.0)
-                    gun_y+=gunMovement;
+                gun.y-=gunMovement;
+                if(gun.y<-3.0)
+                    gun.y+=gunMovement;
                 break;
 
             case GLFW_KEY_A:
-                gun_rotation+=10;
-                if(gun_rotation>90)
-                    gun_rotation-=10;
+                (gun.rotationAngle)+=10;
+                if((gun.rotationAngle)>90)
+                    (gun.rotationAngle)-=10;
                 break;
             case GLFW_KEY_D:
-                gun_rotation-=10;
-                if(gun_rotation<-80)
-                    gun_rotation+=10;
+                gun.rotationAngle-=10;
+                if(gun.rotationAngle<-80)
+                    gun.rotationAngle+=10;
+                break;
+
+            case GLFW_KEY_N:
+                manualTimeBrickFall+=0.1;
+                if(manualTimeBrickFall>0.3)
+                    manualTimeBrickFall-=0.1;
+                break;
+
+            case GLFW_KEY_M:
+                manualTimeBrickFall-=0.1;
+                if(manualTimeBrickFall<-0.3)
+                    manualTimeBrickFall+=0.1;
+                break;
+
+            case GLFW_KEY_SPACE:
+                shoot();
                 break;
 
             case GLFW_KEY_X:
@@ -453,7 +512,7 @@ void draw ()
   Matrices.model = glm::mat4(1.0f);
 
   /* Render your scene */
-  glm::mat4 translateBasket1 = glm::translate (glm::vec3(basket1_x,basket1_y, 0));
+  glm::mat4 translateBasket1 = glm::translate (glm::vec3(basket1.x,basket1.y, 0));
   Matrices.model *= translateBasket1;
   MVP = VP * Matrices.model; // MVP = p * V * M
 
@@ -461,7 +520,7 @@ void draw ()
   glUniformMatrix4fv(Matrices.MatrixID, 1, GL_FALSE, &MVP[0][0]);
 
   // draw3DObject draws the VAO given to it using current MVP matrix
-  draw3DObject(basket1);
+  draw3DObject(basket1.basketObject);
 
 
   //DRAW BASKET2
@@ -470,13 +529,13 @@ void draw ()
   Matrices.model = glm::mat4(1.0f);
 
   //glm::mat4 translateRectangle = glm::translate (glm::vec3(2, 0, 0));        // glTranslatef
-  glm::mat4 translateBasket2 = glm::translate (glm::vec3(basket2_x,basket2_y, 0));
+  glm::mat4 translateBasket2 = glm::translate (glm::vec3(basket2.x,basket2.y, 0));
   Matrices.model *= translateBasket2;
   MVP = VP * Matrices.model;
   glUniformMatrix4fv(Matrices.MatrixID, 1, GL_FALSE, &MVP[0][0]);
 
   // draw3DObject draws the VAO given to it using current MVP matrix
-  draw3DObject(basket2);
+  draw3DObject(basket2.basketObject);
 
   //DRAW GUN
   // Pop matrix to undo transformations till last push matrix instead of recomputing model matrix
@@ -484,14 +543,14 @@ void draw ()
   Matrices.model = glm::mat4(1.0f);
 
   //glm::mat4 translateRectangle = glm::translate (glm::vec3(2, 0, 0));        // glTranslatef
-  glm::mat4 translateGun = glm::translate (glm::vec3(gun_x,gun_y, 0));
-  glm::mat4 rotateGun = glm::rotate((float)(gun_rotation*M_PI/180.0f), glm::vec3(0,gun_y,gun_x));  // rotate about vector (1,0,0)
+  glm::mat4 translateGun = glm::translate (glm::vec3(gun.x,gun.y, 0));
+  glm::mat4 rotateGun = glm::rotate((float)((gun.rotationAngle)*M_PI/180.0f), glm::vec3(0,0,1));  // rotate about vector (1,0,0)
   Matrices.model *= translateGun*rotateGun;
   MVP = VP * Matrices.model;
   glUniformMatrix4fv(Matrices.MatrixID, 1, GL_FALSE, &MVP[0][0]);
 
   // draw3DObject draws the VAO given to it using current MVP matrix
-  draw3DObject(gun);
+  draw3DObject(gun.gunObject);
 
   brick* node=brickListFirst;
   for(;node!=NULL;node=node->next)
@@ -513,6 +572,30 @@ void draw ()
         draw3DObject(node->brickObject);
         }
     }
+
+    //DRAW LASERS
+    laserS *nodeL;
+    for(nodeL=laserFirst;nodeL!=NULL;nodeL=nodeL->next)
+    {
+        if(nodeL->hit==false)
+        {
+            Matrices.model = glm::mat4(1.0f);
+
+            //glm::mat4 translateRectangle = glm::translate (glm::vec3(2, 0, 0));        // glTranslatef
+            glm::mat4 translateLaserOtoGP = glm::translate (glm::vec3(gun.width,(gun.height)/2, 0));
+            glm::mat4 translateLaserGPtoO = glm::translate (glm::vec3(-1*(gun.width),-1*((gun.height)/2), 0));
+            glm::mat4 translateLaser = glm::translate (glm::vec3(nodeL->x,nodeL->y, 0));
+            glm::mat4 rotateLaser = glm::rotate((float)((nodeL->rotationAngle)*M_PI/180.0f), glm::vec3(0,0,1));  // rotate about vector (1,0,0)
+            Matrices.model *= translateLaser*translateLaserGPtoO*rotateLaser*translateLaserOtoGP;
+            MVP = VP * Matrices.model;
+            glUniformMatrix4fv(Matrices.MatrixID, 1, GL_FALSE, &MVP[0][0]);
+
+            // draw3DObject draws the VAO given to it using current MVP matrix
+            draw3DObject(nodeL->laserObject);
+
+        }
+    }
+
 
 
   // Increment angles
@@ -570,6 +653,32 @@ GLFWwindow* initGLFW (int width, int height)
     return window;
 }
 
+void gamelost()
+{
+    glfwTerminate();
+}
+
+void shoot()
+{
+    laserS *newLaser=(laserS*)malloc(sizeof(laserS));
+    newLaser->laserObject=createRectangle(0.0f,0.0f,0.0f,newLaser->height,newLaser->width,newLaser->height,newLaser->width,0.0f,0.0f,1.0f,0.0f);
+    newLaser->rotationAngle=gun.rotationAngle;
+    newLaser->x=gun.x+gun.width;
+    newLaser->y=gun.y+(gun.height)/2;
+    newLaser->forward=true;
+    newLaser->next=NULL;
+
+    if(laserFirst==NULL)
+        laserFirst=newLaser;
+    if(laserLast==NULL)
+        laserLast=newLaser;
+    else
+    {
+        laserLast->next=newLaser;
+        laserLast=newLaser;
+    }
+}
+
 /* Initialize the OpenGL rendering properties */
 /* Add all the models to be created here */
 void initGL (GLFWwindow* window, int width, int height)
@@ -579,9 +688,9 @@ void initGL (GLFWwindow* window, int width, int height)
 	//createTriangle (); // Generate the VAO, VBOs, vertices data & copy into the array buffer
 	//basket1=createRectangle(-3.0,-4.0,-3.0,-5.0,-5.0,-5.0,-5.0,-4.0);
     //basket2=createRectangle(-2.0,-4.5,-2.0,-5.0,-1.0f,-5.0,-1.0,-4.5);
-    basket1=createRectangle(-1.0f,0.0f,-1.0f,-0.25f,-0.5f,-0.25f,-0.5f,0.0f,0.0f,1.0f,0.0f);
-    basket2=createRectangle(-1.0f,0.0f,-1.0f,-0.25f,-0.5f,-0.25f,-0.5f,0.0f,0.0f,0.0f,1.0f);
-    gun=createRectangle(0.0,0.2,0.0,0.0,1.0,0.0,1.0,0.2,0.3f,0.3f,0.0f);
+    basket1.basketObject=createRectangle(0.0f,0.0f,0.0f,basket1.height,basket1.width,basket1.height,basket1.width,0.0f,0.0f,1.0f,0.0f);
+    basket2.basketObject=createRectangle(0.0f,0.0f,0.0f,basket2.height,basket2.width,basket2.height,basket2.width,0.0f,0.0f,0.0f,1.0f);
+    gun.gunObject=createRectangle(0.0f,0.0f,0.0f,gun.height,gun.width,gun.height,gun.width,0.0f,0.0f,0.0f,1.0f);
 
 	// Create and compile our GLSL program from the shaders
 	programID = LoadShaders( "Sample_GL.vert", "Sample_GL.frag" );
@@ -604,21 +713,54 @@ void initGL (GLFWwindow* window, int width, int height)
     cout << "GLSL: " << glGetString(GL_SHADING_LANGUAGE_VERSION) << endl;
 }
 
+void levelup()
+{
+    timeBetweenBrickFall+=0.5;
+    score.level++;
+}
+
+void changeScore(int change)
+{
+    score.score+=5;
+    if (score.score>50)
+        levelup();
+}
+
 void checkCollisionBasketBrick(brick * fallenBrick)
 {
     float brickleft=(fallenBrick->x),brickright=(fallenBrick->x)+0.25;
     //collision with basket1
-    if(brickleft>=basket1_x-1.0 && brickright<=basket1_x+0.5-1.0)
+    if(brickleft>=(basket1.x) && brickright<=(basket1.x)+(basket1.width))
     {
-        printf("hola]n");
-        glfwTerminate();
-        /*fallenBrick->hit=true;
+        fallenBrick->hit=true;
         if(fallenBrick->color==3)
         {
             basket1.bricks++;
-            if(basket1.bricks>3)
+            if(basket1.bricks>=3)
                 gamelost();
-        }*/
+        }
+        else
+        {
+            changeScore(5);
+            printf("%d\n",score.score);
+        }
+    }
+
+    //collision with basket2
+    if(brickleft>=(basket2.x) && brickright<=(basket2.x)+(basket2.width))
+    {
+        fallenBrick->hit=true;
+        if(fallenBrick->color==3)
+        {
+            basket2.bricks++;
+            if(basket2.bricks>=3)
+                gamelost();
+        }
+        else
+        {
+            changeScore(5);
+            printf("%d\n",score.score );
+        }
     }
 }
 
@@ -626,12 +768,13 @@ int main (int argc, char** argv)
 {
 	int width = 900;
 	int height = 900;
+    initialiseVariables();
 
     GLFWwindow* window = initGLFW(width, height);
 
-	initGL (window, width, height);
+	initGL(window, width, height);
 
-    double last_update_time = glfwGetTime(), current_time;
+    double last_update_time = glfwGetTime(), current_time,last_update_time_laser=last_update_time;
 
     /* Draw in loop */
     while (!glfwWindowShouldClose(window)) {
@@ -648,7 +791,8 @@ int main (int argc, char** argv)
         // Control based on time (Time based transformation like 5 degrees rotation every 0.5s)
         current_time = glfwGetTime(); // Time in seconds
         timeBetweenBrickFall=1.0;
-        if ((current_time - last_update_time) >= timeBetweenBrickFall) { // atleast 0.5s elapsed since last frame
+        manualTimeBrickFall=0.0;
+        if ((current_time - last_update_time) >= timeBetweenBrickFall+manualTimeBrickFall) { // atleast 0.5s elapsed since last frame
             //make new brick
             brick *newBrick=(brick *)malloc(sizeof(brick));
             newBrick->color=rand()%4;
@@ -668,13 +812,36 @@ int main (int argc, char** argv)
             for(node=brickListFirst;node!=NULL;node=node->next)
             {
                 node->y=(node->y)-0.5;
-                if((node->y)<-4)
+                if((node->y)<=basket1.y+basket1.height)
                 {
                     checkCollisionBasketBrick(node);
                     brickListFirst=node->next;
                 }
             }
             last_update_time = current_time;
+        }
+        if(current_time-last_update_time_laser>=0.1)
+        {
+            laserS* nodeL,*PnodeL=laserFirst;
+            for(nodeL=laserFirst;nodeL!=NULL;nodeL=nodeL->next,PnodeL=nodeL)
+            {
+                if(nodeL->forward)
+                {
+                    nodeL->x+=0.1*cos(nodeL->rotationAngle*M_PI/180);
+                    nodeL->y+=0.1*sin(nodeL->rotationAngle*M_PI/180);
+                    if((nodeL->x)+(nodeL->width)>4.0 || (nodeL->x)+(nodeL->width)<-4.0)
+                        if(nodeL!=laserFirst)
+                        {
+                            PnodeL->next=nodeL->next;
+                            nodeL=PnodeL;
+                        }
+                        else
+                        {
+                            
+                        }
+
+                }
+            }
         }
     }
 
