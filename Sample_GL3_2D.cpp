@@ -58,12 +58,20 @@ typedef struct laserS{
     VAO * laserObject;
     static const float width=0.8, height=0.02;
     float rotationAngle;
-    bool hit,forward;
+    bool hit,collidedMirror;
     struct laserS* next;
 }laserS;
 laserS *laserFirst, *laserLast;
 
 float manualTimeBrickFall;
+
+typedef struct mirrorS{
+    float x,y;
+    static const float width=1.0, height=0.2;
+    float angleX;
+    VAO *mirrorobject;
+}mirrorS;
+mirrorS mirror[4];
 
 //VAO *basket1, *basket2,*gun;
 void initialiseVariables(){
@@ -79,7 +87,12 @@ void initialiseVariables(){
     score.level=1;
     score.nonBlackHit=0;
     manualTimeBrickFall=0.0;
-    //laser.width=0.5, laser.height=0.2;
+
+    //mirrors
+    mirror[0].x=-1.0,mirror[0].y=0.0,mirror[0].angleX=30;
+    mirror[1].x=1.0,mirror[1].y=3.0,mirror[1].angleX=45;
+    mirror[2].x=2.5,mirror[2].y=-2.0,mirror[2].angleX=75;
+    mirror[3].x=3.5,mirror[3].y=3.5,mirror[3].angleX=15;
 }
 typedef struct brick{
     int color;
@@ -600,6 +613,23 @@ void draw ()
         }
     }
 
+    //DRAW MIRRORS
+    int i;
+    for(i=0;i<4;i++)
+    {
+        Matrices.model = glm::mat4(1.0f);
+
+            //glm::mat4 translateRectangle = glm::translate (glm::vec3(2, 0, 0));        // glTranslatef
+        glm::mat4 translateMirror = glm::translate (glm::vec3(mirror[i].x,mirror[i].y, 0));
+        glm::mat4 rotateMirror = glm::rotate((float)((mirror[i].angleX)*M_PI/180.0f), glm::vec3(0,0,1));  // rotate about vector (1,0,0)
+        Matrices.model *= translateMirror*rotateMirror;
+        MVP = VP * Matrices.model;
+        glUniformMatrix4fv(Matrices.MatrixID, 1, GL_FALSE, &MVP[0][0]);
+        // draw3DObject draws the VAO given to it using current MVP matrix
+        draw3DObject(mirror[i].mirrorobject);
+    }
+
+
 
 
   // Increment angles
@@ -659,17 +689,22 @@ GLFWwindow* initGLFW (int width, int height)
 
 void gamelost()
 {
-    glfwTerminate();
+    return;
 }
 
+float last_laser_shot=0.0;
 void shoot()
 {
+    float current_time=glfwGetTime();
+    if(last_laser_shot!=0 && (current_time-last_laser_shot)<1.0)
+        return;
+    last_laser_shot=current_time;
     laserS *newLaser=(laserS*)malloc(sizeof(laserS));
     newLaser->laserObject=createRectangle(0.0f,0.0f,0.0f,newLaser->height,newLaser->width,newLaser->height,newLaser->width,0.0f,0.0f,1.0f,0.0f);
     newLaser->rotationAngle=gun.rotationAngle;
     newLaser->x=gun.x+gun.width;
     newLaser->y=gun.y+(gun.height)/2;
-    newLaser->forward=true;
+    newLaser->collidedMirror=false;
     newLaser->hit=false;
     newLaser->next=NULL;
 
@@ -696,6 +731,10 @@ void initGL (GLFWwindow* window, int width, int height)
     basket1.basketObject=createRectangle(0.0f,0.0f,0.0f,basket1.height,basket1.width,basket1.height,basket1.width,0.0f,0.0f,1.0f,0.0f);
     basket2.basketObject=createRectangle(0.0f,0.0f,0.0f,basket2.height,basket2.width,basket2.height,basket2.width,0.0f,0.0f,0.0f,1.0f);
     gun.gunObject=createRectangle(0.0f,0.0f,0.0f,gun.height,gun.width,gun.height,gun.width,0.0f,0.0f,0.0f,1.0f);
+
+    int i;
+    for(i=0;i<4;i++)
+        mirror[i].mirrorobject=createRectangle(0.0f,0.0f,0.0f,mirror[i].height,mirror[i].width,mirror[i].height,mirror[i].width,0.0f,0.0f,0.0f,0.3f);
 
 	// Create and compile our GLSL program from the shaders
 	programID = LoadShaders( "Sample_GL.vert", "Sample_GL.frag" );
@@ -772,16 +811,17 @@ void checkCollisionBasketBrick(brick * fallenBrick)
 void checkCollisionLaserBrick(laserS *laserseg)
 {
     brick * node;
-    float laserTipX=(laserseg->x)+(laserseg->width),laserTipY=(laserseg->y);  //bottom right vertex
+    float laserTipX=(laserseg->x)+(laserseg->width)*cos((laserseg->rotationAngle)*M_PI/180),laserTipY=(laserseg->y)+(laserseg->width)*sin((laserseg->rotationAngle)*M_PI/180);  //bottom right vertex
     for(node=brickListFirst;node!=NULL;node=node->next)
     {
         //if laser hits brick
         if(node->hit==false)
         {
             //printf("hoho\n");
-            if(((node->x)<=laserTipX) && ((node->x)>=(laserseg->x)) && ((node->y)<=laserTipY) && ((node->y)+(node->height)>=laserTipY+(laserseg->height)))
+            if((((node->x)<=laserTipX) && ((node->x)>=(laserseg->x)) && ((node->y)<=laserTipY) && ((node->y)+(node->height)>=laserTipY))||(((node->x)+(node->width)>=laserTipX) && ((node->x)+(node->width)<=(laserseg->x)) && ((node->y)<=laserTipY) && ((node->y)+(node->height)>=(laserTipY))))
             //if(((1.0)>=laserTipX) && ((node->x)+(node->width)<=laserTipX) && ((node->y)<=laserTipY) && ((node->y)+(node->height)>=laserTipY+(laserseg->height)))
             {
+                printf("br=%lf,bl=%lf,lT=%lf,ls=%lf,lTY=%lf,bd=%lf,bu=%lf\n",(node->x)+(node->width),(node->x),laserTipX,(laserseg->x),laserTipY,(node->y),(node->y)+(node->height) );
                 node->hit=true;
                 laserseg->hit=true;
                 if(node->color!=3)
@@ -794,6 +834,36 @@ void checkCollisionLaserBrick(laserS *laserseg)
                 {
                     changeScore(10);
                 }
+                return;
+            }
+        }
+    }
+}
+
+void checkCollisionLaserMirror(laserS* laserseg)
+{
+    int i;
+    float laserTipX=(laserseg->x)+(laserseg->width)*cos((laserseg->rotationAngle)*M_PI/180),laserTipY=(laserseg->y)+(laserseg->width)*sin((laserseg->rotationAngle)*M_PI/180);
+    for(i=0;i<4;i++)
+    {
+        mirrorS currMirror=mirror[i];
+        //laser tip touches mirror
+        if(laserTipX>=currMirror.x && laserTipX<=currMirror.x+(currMirror.width)*(cos((currMirror.angleX)*M_PI/180)))
+        {
+            //printf("hola\n");
+            float yxonMirror=((laserTipX)-currMirror.x)*tan(currMirror.angleX*M_PI/180)+(currMirror.y);
+            if(laserTipY>=yxonMirror && laserTipY<=yxonMirror+(mirror[i].height)/cos(currMirror.angleX*M_PI/180))
+            {
+                //laser touched mirror
+                //reverse laser
+                //laserseg->collidedMirror=false;
+                //laserseg->x=(laserseg->x)+(laserseg->width)*cos((laserseg->rotationAngle)*M_PI/180);
+                //laserseg->y=(laserseg->y)+(laserseg->width)*sin((laserseg->rotationAngle)*M_PI/180);
+                (laserseg->x)=laserTipX;
+                (laserseg->y)=laserTipY;
+                laserseg->rotationAngle=2*(mirror[i].angleX)-(laserseg->rotationAngle);
+                laserseg->collidedMirror=true;
+                return;
             }
         }
     }
@@ -860,18 +930,15 @@ int main (int argc, char** argv)
             laserS* nodeL,*PnodeL=laserFirst;
             for(nodeL=laserFirst;nodeL!=NULL;)
             {
-                if(nodeL->forward)
-                {
-                    nodeL->x+=0.1*cos(nodeL->rotationAngle*M_PI/180);
-                    nodeL->y+=0.1*sin(nodeL->rotationAngle*M_PI/180);
-                }
-                else
-                {
-                    nodeL->x-=0.1*cos(nodeL->rotationAngle*M_PI/180);
-                    nodeL->y-=0.1*sin(nodeL->rotationAngle*M_PI/180);
-                }
+                nodeL->x+=0.1*cos(nodeL->rotationAngle*M_PI/180);
+                nodeL->y+=0.1*sin(nodeL->rotationAngle*M_PI/180);
+
                 if(nodeL->hit==false)
+                {
                     checkCollisionLaserBrick(nodeL);
+                    if((nodeL->collidedMirror)==false)
+                        checkCollisionLaserMirror(nodeL);
+                }
                 //if laser goes out of screen, delete it
                 if((nodeL->x)+(nodeL->width)>4.0 || (nodeL->x)+(nodeL->width)<-4.0)
                 {
